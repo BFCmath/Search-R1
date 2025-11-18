@@ -82,11 +82,17 @@ class SearcherAgent:
         print(f"\n{'='*80}")
         print(f"🔍 [SEARCHER AGENT] Processing query")
         print(f"{'='*80}")
-        print(f"Query: {query[:200]}...")
+        print(f"Query: {query}")
         print(f"{'='*80}\n")
 
         # Create initial prompt for the agent
         initial_prompt = self._create_initial_prompt(query)
+
+        print(f"\n{'─'*80}")
+        print(f"📝 [SEARCHER AGENT] Initial Prompt (Full):")
+        print(f"{'─'*80}")
+        print(initial_prompt)
+        print(f"{'─'*80}\n")
 
         # Initialize agent state
         current_context = self.tokenizer(
@@ -122,15 +128,19 @@ class SearcherAgent:
 
             # Post-process response to stop at action tags
             response_str = self._postprocess_response(response_str)
-            trajectory.append(f"Turn {turn}: {response_str[:200]}...")
+            trajectory.append(f"Turn {turn}: {response_str}")
 
-            print(f"   Response: {response_str[:100]}...")
+            print(f"\n{'─'*80}")
+            print(f"💬 [SEARCHER AGENT] Turn {turn} FULL Response:")
+            print(f"{'─'*80}")
+            print(response_str)
+            print(f"{'─'*80}\n")
 
             # Check if agent provided final answer
             if '<answer>' in response_str and '</answer>' in response_str:
                 answer = self._extract_answer(response_str)
                 print(f"✅ [Searcher Agent] Found answer after {turn} turns")
-                print(f"   Answer: {answer[:100]}...")
+                print(f"   Answer: {answer}")
 
                 return {
                     'answer': answer,
@@ -143,16 +153,26 @@ class SearcherAgent:
             elif '<search>' in response_str and '</search>' in response_str:
                 search_query = self._extract_search_query(response_str)
                 if search_query:
-                    print(f"   🔎 Searching: {search_query[:80]}...")
+                    print(f"\n{'─'*80}")
+                    print(f"🔎 [SEARCHER AGENT] Search Query {num_searches + 1}:")
+                    print(f"{'─'*80}")
+                    print(search_query)
+                    print(f"{'─'*80}\n")
 
                     # Execute search
                     search_results = self._execute_search(search_query)
                     num_searches += 1
 
+                    print(f"\n{'─'*80}")
+                    print(f"📚 [SEARCHER AGENT] Search Results {num_searches} (FULL):")
+                    print(f"{'─'*80}")
+                    print(search_results)
+                    print(f"{'─'*80}\n")
+
                     # Create observation
                     observation = f'\n\n<information>{search_results}</information>\n\n'
                     trajectory.append(f"Search {num_searches}: {search_query}")
-                    trajectory.append(f"Results: {search_results[:200]}...")
+                    trajectory.append(f"Results: {search_results}")
 
                     # Update context with response + observation
                     response_tokens = self.tokenizer.encode(
@@ -233,10 +253,14 @@ IMPORTANT: You MUST respond with <answer>your answer here</answer>
         Returns:
             Extracted answer string
         """
-        print(f"   🎯 [Forcing Answer] Appending forced answer prompt")
+        print(f"\n{'─'*80}")
+        print(f"🎯 [SEARCHER AGENT] Forced Answer Prompt:")
+        print(f"{'─'*80}")
+        forced_prompt = self._create_forced_answer_prompt()
+        print(forced_prompt)
+        print(f"{'─'*80}\n")
         
         # Add forced answer prompt to context
-        forced_prompt = self._create_forced_answer_prompt()
         forced_prompt_tokens = self.tokenizer.encode(
             forced_prompt, add_special_tokens=False, return_tensors='pt'
         ).to(self.config.device)
@@ -270,14 +294,19 @@ IMPORTANT: You MUST respond with <answer>your answer here</answer>
         
         # Post-process
         response_str = self._postprocess_response(response_str)
-        trajectory.append(f"Final Turn (Forced): {response_str[:200]}...")
+        trajectory.append(f"Final Turn (Forced): {response_str}")
         
-        print(f"   📝 Forced response: {response_str[:150]}...")
+        print(f"\n{'─'*80}")
+        print(f"📝 [SEARCHER AGENT] Forced Response (FULL):")
+        print(f"{'─'*80}")
+        print(response_str)
+        print(f"{'─'*80}\n")
         
         # Extract answer
         if '<answer>' in response_str and '</answer>' in response_str:
             answer = self._extract_answer(response_str)
-            print(f"   ✅ Successfully extracted answer: {answer[:100]}...")
+            print(f"✅ [SEARCHER AGENT] Successfully extracted answer:")
+            print(answer)
             return answer
         else:
             print(f"   ⚠️ No answer tags even after forcing, using default")
