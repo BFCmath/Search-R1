@@ -124,8 +124,8 @@ class SearcherAgent:
             response_str = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
             
             # Post-process to stop at tags
-            if '</thinking>' in response_str:
-                response_str = response_str.split('</thinking>')[0] + '</thinking>'
+            if '</think>' in response_str:
+                response_str = response_str.split('</think>')[0] + '</think>'
             elif '</search>' in response_str:
                 response_str = response_str.split('</search>')[0] + '</search>'
             elif '</answer>' in response_str:
@@ -198,7 +198,7 @@ You are a search assistant. Your task is to answer the query by searching for in
 You can search multiple times if needed (max {self.config.max_turns} searches).
 
 Instructions:
-1. First, use <thinking>...</thinking> to reason about what information you need
+1. First, use <think>...</think> to reason about what information you need
 2. Then use <search>query</search> to search for information
 3. You will receive results in <information>...</information>
 4. After reviewing the information, either search again or provide <answer>...</answer>

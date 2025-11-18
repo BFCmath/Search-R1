@@ -201,7 +201,7 @@ class SearcherAgent:
 You are a search assistant. Your task is to answer the query by searching for information when needed.
 
 Instructions:
-1. First, use <thinking>...</thinking> to reason about what information you need
+1. First, use <think>...</think> to reason about what information you need
 2. If you need to search, use <search>query</search> to search for information
 3. You will receive results in <information>...</information>
 4. After reviewing information, either search again or provide <answer>...</answer>
@@ -218,8 +218,8 @@ Query: {query}
     def _postprocess_response(self, response: str) -> str:
         """Post-process response to stop at action tags"""
         # Stop at the first action tag
-        if '</thinking>' in response:
-            response = response.split('</thinking>')[0] + '</thinking>'
+        if '</think>' in response:
+            response = response.split('</think>')[0] + '</think>'
         elif '</search>' in response:
             response = response.split('</search>')[0] + '</search>'
         elif '</answer>' in response:
