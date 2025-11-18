@@ -443,6 +443,7 @@ class RayPPOTrainer(object):
         Accumulates metrics across all batches before computing final statistics.
         """
         import torch
+        import time
         reward_tensor_lst = []
         data_source_lst = []
 
@@ -465,9 +466,23 @@ class RayPPOTrainer(object):
             config=gen_config,
             is_validation = True,
         )
+        
+        # Validation progress tracking
+        total_val_batches = len(self.val_dataloader)
+        total_val_questions = len(self.val_dataset)
+        questions_processed = 0
+        val_start_time = time.time()
+        val_batch_times = []
+        
+        print(f'\n{"="*80}')
+        print(f'🔍 [META] PHASE: VALIDATION')
+        print(f'{"="*80}')
+        print(f'Total batches: {total_val_batches} | Total questions: {total_val_questions} | Batch size: {self.config.data.val_batch_size}')
+        print(f'{"="*80}\n')
 
         if not self.config.do_search:
-            for test_data in self.val_dataloader:
+            for batch_idx, test_data in enumerate(self.val_dataloader, 1):
+                batch_start_time = time.time()
                 test_batch = DataProto.from_single_dict(test_data)
 
                 # we only do validation on rule-based rm
@@ -498,8 +513,24 @@ class RayPPOTrainer(object):
 
                 reward_tensor_lst.append(reward_tensor)
                 data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+                
+                # Update progress
+                batch_time = time.time() - batch_start_time
+                val_batch_times.append(batch_time)
+                questions_processed += reward_tensor.shape[0]
+                progress_pct = (batch_idx / total_val_batches) * 100
+                
+                # Calculate ETA
+                if len(val_batch_times) > 0:
+                    avg_batch_time = sum(val_batch_times[-5:]) / len(val_batch_times[-5:])  # Last 5 batches
+                    remaining_batches = total_val_batches - batch_idx
+                    eta_seconds = avg_batch_time * remaining_batches
+                    eta_str = self._format_time(eta_seconds)
+                    elapsed_str = self._format_time(time.time() - val_start_time)
+                    print(f'📊 Validation [{batch_idx}/{total_val_batches}] ({progress_pct:.1f}%) | Questions: {questions_processed}/{total_val_questions} | Elapsed: {elapsed_str} | ETA: {eta_str} | Batch time: {batch_time:.1f}s', flush=True)
         else:
-            for batch_dict in self.val_dataloader:
+            for batch_idx, batch_dict in enumerate(self.val_dataloader, 1):
+                batch_start_time = time.time()
                 timing_raw = {}
                 test_batch: DataProto = DataProto.from_single_dict(batch_dict)
                 # test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
@@ -532,6 +563,32 @@ class RayPPOTrainer(object):
 
                     reward_tensor_lst.append(reward_tensor)
                     data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+                
+                # Update progress
+                batch_time = time.time() - batch_start_time
+                val_batch_times.append(batch_time)
+                questions_processed += reward_tensor.shape[0]
+                progress_pct = (batch_idx / total_val_batches) * 100
+                
+                # Calculate ETA
+                if len(val_batch_times) > 0:
+                    avg_batch_time = sum(val_batch_times[-5:]) / len(val_batch_times[-5:])  # Last 5 batches
+                    remaining_batches = total_val_batches - batch_idx
+                    eta_seconds = avg_batch_time * remaining_batches
+                    eta_str = self._format_time(eta_seconds)
+                    elapsed_str = self._format_time(time.time() - val_start_time)
+                    
+                    # Show average reward for current batch
+                    avg_reward = reward_tensor.mean().item() if hasattr(reward_tensor, 'mean') else 0.0
+                    print(f'📊 Validation [{batch_idx}/{total_val_batches}] ({progress_pct:.1f}%) | Questions: {questions_processed}/{total_val_questions} | Avg Reward: {avg_reward:.3f} | Elapsed: {elapsed_str} | ETA: {eta_str} | Batch time: {batch_time:.1f}s', flush=True)
+        
+        # Print validation completion summary
+        total_val_time = time.time() - val_start_time
+        print(f'\n{"="*80}')
+        print(f'✅ [META] PHASE COMPLETE: VALIDATION')
+        print(f'{"="*80}')
+        print(f'Total questions processed: {questions_processed} | Total time: {self._format_time(total_val_time)} | Avg time per batch: {total_val_time/total_val_batches:.1f}s')
+        print(f'{"="*80}\n')
 
         reward_tensor = torch.cat([rw.sum(-1) for rw in reward_tensor_lst], dim=0).cpu()  # (batch_size,)
         # reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
@@ -553,6 +610,10 @@ class RayPPOTrainer(object):
 
     def init_workers(self):
         """Init resource pool and worker group"""
+        print(f'\n{"="*80}')
+        print(f'🔧 [META] PHASE: INITIALIZATION - Creating Resource Pools and Workers')
+        print(f'{"="*80}\n')
+        
         self.resource_pool_manager.create_resource_pool()
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
@@ -676,13 +737,20 @@ class RayPPOTrainer(object):
         import time
         logger = self.logger
         self.global_steps = 0
+        
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
+            print(f'\n{"="*80}')
+            print(f'🧪 [META] PHASE: PRE-TRAINING VALIDATION')
+            print(f'{"="*80}\n')
             val_metrics = self._validate()
             pprint(f'Initial validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get('val_only', False):
+                print(f'\n{"="*80}')
+                print(f'🏁 [META] PHASE: COMPLETE - Validation Only Mode')
+                print(f'{"="*80}\n')
                 return
 
         # we start from step 1
@@ -691,6 +759,12 @@ class RayPPOTrainer(object):
         # Start timing for progress tracking
         self.training_start_time = time.time()
         self.step_times = []
+        
+        print(f'\n{"="*80}')
+        print(f'🚀 [META] PHASE: TRAINING START')
+        print(f'{"="*80}')
+        print(f'Total epochs: {self.config.trainer.total_epochs} | Total steps: {self.total_training_steps}')
+        print(f'{"="*80}\n')
 
         # Agent config preparation
         gen_config = GenerationConfig(
@@ -725,10 +799,12 @@ class RayPPOTrainer(object):
                     eta_str = self._format_time(eta_seconds)
                     elapsed_str = self._format_time(time.time() - self.training_start_time)
                     print(f'\n{"="*80}')
+                    print(f'🔄 [META] PHASE: TRAINING STEP')
                     print(f'[Epoch {epoch+1}/{self.config.trainer.total_epochs}] Step {self.global_steps}/{self.total_training_steps} ({progress_pct:.1f}%) | Elapsed: {elapsed_str} | ETA: {eta_str}')
                     print(f'{"="*80}')
                 else:
                     print(f'\n{"="*80}')
+                    print(f'🔄 [META] PHASE: TRAINING STEP')
                     print(f'[Epoch {epoch+1}/{self.config.trainer.total_epochs}] Step {self.global_steps}/{self.total_training_steps} ({progress_pct:.1f}%)')
                     print(f'{"="*80}')
                 
@@ -861,14 +937,23 @@ class RayPPOTrainer(object):
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
                         self.global_steps % self.config.trainer.test_freq == 0:
+                        print(f'\n{"="*80}')
+                        print(f'🧪 [META] PHASE: PERIODIC VALIDATION (Step {self.global_steps})')
+                        print(f'{"="*80}\n')
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
+                        print(f'\n{"="*80}')
+                        print(f'💾 [META] PHASE: CHECKPOINT SAVING (Step {self.global_steps})')
+                        print(f'{"="*80}\n')
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
+                        print(f'\n{"="*80}')
+                        print(f'✅ [META] CHECKPOINT SAVED SUCCESSFULLY')
+                        print(f'{"="*80}\n')
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
@@ -894,12 +979,24 @@ class RayPPOTrainer(object):
                 self.global_steps += 1
 
                 if self.global_steps >= self.total_training_steps:
+                    print(f'\n{"="*80}')
+                    print(f'🎉 [META] PHASE: TRAINING COMPLETE')
+                    print(f'{"="*80}')
+                    print(f'Total steps completed: {self.global_steps - 1} | Total time: {self._format_time(time.time() - self.training_start_time)}')
+                    print(f'{"="*80}\n')
 
                     # perform validation after training
                     if self.val_reward_fn is not None:
+                        print(f'\n{"="*80}')
+                        print(f'🧪 [META] PHASE: POST-TRAINING VALIDATION')
+                        print(f'{"="*80}\n')
                         val_metrics = self._validate()
                         pprint(f'Final validation metrics: {val_metrics}')
                         logger.log(data=val_metrics, step=self.global_steps)
+                    
+                    print(f'\n{"="*80}')
+                    print(f'🏁 [META] ALL PHASES COMPLETE - Training Finished Successfully!')
+                    print(f'{"="*80}\n')
                     return
     
     def _create_loss_mask(self, batch, metrics):
