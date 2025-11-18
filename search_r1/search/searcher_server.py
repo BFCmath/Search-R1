@@ -182,13 +182,16 @@ class SearcherAgent:
                 print(f"     ⚠️ Invalid action (no search or answer)")
                 break
         
-        # If no answer after max turns
-        print(f"  ⚠️ [Searcher] No answer after {self.config.max_turns} turns")
+        # Force final answer generation after max turns
+        print(f"  ⚠️ [Searcher] Max turns reached, forcing final answer generation")
+        
+        forced_answer = self._force_final_answer(current_context, trajectory)
+        
         return {
-            'summary': "Unable to find sufficient information to answer the query.",
+            'summary': forced_answer,
             'trajectory': trajectory,
             'num_searches': num_searches,
-            'success': False
+            'success': False if forced_answer.startswith("Unable to") else True
         }
     
     def _create_searcher_prompt(self, query: str) -> str:
@@ -209,6 +212,83 @@ Provide a concise, direct answer to the query.<|im_end|>
 Query: {query}<|im_end|>
 <|im_start|>assistant
 """
+    
+    def _create_forced_answer_prompt(self) -> str:
+        """Create prompt that forces answer generation in final turn"""
+        return f"""\n\n<|im_start|>system
+You have reached the maximum number of search turns. Based on all the information you have gathered so far, you MUST now provide a final answer.
+
+IMPORTANT: You MUST respond with <answer>your answer here</answer>
+
+If you have enough information, provide the best answer you can.
+If you don't have enough information, provide <answer>Unable to find sufficient information to answer the query.</answer>
+
+Respond now with <answer>...</answer><|im_end|>
+<|im_start|>assistant
+"""
+    
+    def _force_final_answer(self, current_context: Dict, trajectory: List[str]) -> str:
+        """
+        Force the model to generate a final answer when max turns reached.
+        
+        Args:
+            current_context: Current context with all history
+            trajectory: Conversation trajectory for logging
+            
+        Returns:
+            Extracted answer string
+        """
+        print(f"     🎯 [Forcing Answer] Appending forced answer prompt")
+        
+        # Add forced answer prompt to context
+        forced_prompt = self._create_forced_answer_prompt()
+        forced_prompt_tokens = self.tokenizer.encode(
+            forced_prompt, add_special_tokens=False, return_tensors='pt'
+        ).to(self.config.device)
+        
+        # Append to context
+        final_context = {
+            'input_ids': torch.cat([
+                current_context['input_ids'],
+                forced_prompt_tokens
+            ], dim=1),
+        }
+        
+        # Truncate if needed
+        if final_context['input_ids'].shape[1] > 2048:
+            final_context['input_ids'] = final_context['input_ids'][:, -2048:]
+        
+        final_context['attention_mask'] = torch.ones_like(final_context['input_ids'])
+        
+        # Generate final answer
+        output = self.model.generate(
+            **final_context,
+            max_new_tokens=self.config.max_response_length,
+            do_sample=False,  # Greedy for final answer
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+        )
+        
+        # Decode only new tokens
+        new_tokens = output[0][final_context['input_ids'].shape[1]:]
+        response_str = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        
+        # Post-process
+        if '</answer>' in response_str:
+            response_str = response_str.split('</answer>')[0] + '</answer>'
+        
+        trajectory.append(f"Final Turn (Forced): {response_str[:200]}...")
+        
+        print(f"     📝 Forced response: {response_str[:150]}...")
+        
+        # Extract answer
+        if '<answer>' in response_str and '</answer>' in response_str:
+            answer = self._extract_answer(response_str)
+            print(f"     ✅ Successfully extracted answer: {answer[:100]}...")
+            return answer
+        else:
+            print(f"     ⚠️ No answer tags even after forcing, using default")
+            return "Unable to find sufficient information to answer the query."
     
     def _extract_search_query(self, text: str) -> str:
         """Extract search query from <search>...</search>"""

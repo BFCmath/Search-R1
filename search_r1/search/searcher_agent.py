@@ -185,14 +185,16 @@ class SearcherAgent:
                 print(f"   ❌ Invalid action (no search or answer)")
                 break
 
-        # No answer found within max turns
-        print(f"⚠️ [Searcher Agent] No answer after {self.config.max_turns} turns")
-
+        # Force final answer generation after max turns
+        print(f"⚠️ [Searcher Agent] Max turns reached, forcing final answer generation")
+        
+        forced_answer = self._force_final_answer(current_context, trajectory)
+        
         return {
-            'answer': "Unable to find sufficient information to answer the query.",
+            'answer': forced_answer,
             'trajectory': trajectory,
             'num_searches': num_searches,
-            'success': False
+            'success': False if forced_answer.startswith("Unable to") else True
         }
 
     def _create_initial_prompt(self, query: str) -> str:
@@ -200,20 +202,86 @@ class SearcherAgent:
         return f"""<|im_start|>system
 You are a search assistant. Your task is to answer the query by searching for information when needed.
 
-Instructions:
-1. First, use <think>...</think> to reason about what information you need
-2. If you need to search, use <search>query</search> to search for information
-3. You will receive results in <information>...</information>
-4. After reviewing information, either search again or provide <answer>...</answer>
-5. Always end with <answer>...</answer> when you have enough information to answer the query
+Use <think>...</think> to reason about what information you need. If you need to search, use <search>query</search> to search for information, you will receive results in <information>...</information>. After reviewing information, either search again or provide <answer>...</answer>.
 
-Important: Focus on gathering factual information to directly answer the query. Be concise but thorough.
 <|im_end|>
 <|im_start|>user
 Query: {query}
 <|im_end|>
 <|im_start|>assistant
 """
+
+    def _create_forced_answer_prompt(self) -> str:
+        """Create prompt that forces answer generation in final turn"""
+        return f"""\n\n<|im_start|>system
+Based on all the information you have gathered so far, you MUST now provide a final answer.
+If you have enough information, provide the best summarization for what you find helpful.
+
+IMPORTANT: You MUST respond with <answer>your answer here</answer>
+<|im_end|>
+<|im_start|>assistant
+"""
+
+    def _force_final_answer(self, current_context: Dict, trajectory: List[str]) -> str:
+        """
+        Force the model to generate a final answer when max turns reached.
+        
+        Args:
+            current_context: Current context with all history
+            trajectory: Conversation trajectory for logging
+            
+        Returns:
+            Extracted answer string
+        """
+        print(f"   🎯 [Forcing Answer] Appending forced answer prompt")
+        
+        # Add forced answer prompt to context
+        forced_prompt = self._create_forced_answer_prompt()
+        forced_prompt_tokens = self.tokenizer.encode(
+            forced_prompt, add_special_tokens=False, return_tensors='pt'
+        ).to(self.config.device)
+        
+        # Append to context
+        final_context = {
+            'input_ids': torch.cat([
+                current_context['input_ids'],
+                forced_prompt_tokens
+            ], dim=1),
+        }
+        
+        # Truncate if needed
+        if final_context['input_ids'].shape[1] > 2048:
+            final_context['input_ids'] = final_context['input_ids'][:, -2048:]
+        
+        final_context['attention_mask'] = torch.ones_like(final_context['input_ids'])
+        
+        # Generate final answer
+        output = self.model.generate(
+            **final_context,
+            max_new_tokens=self.config.max_response_length,
+            do_sample=False,  # Greedy for final answer
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+        )
+        
+        # Decode only new tokens
+        new_tokens = output[0][final_context['input_ids'].shape[1]:]
+        response_str = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        
+        # Post-process
+        response_str = self._postprocess_response(response_str)
+        trajectory.append(f"Final Turn (Forced): {response_str[:200]}...")
+        
+        print(f"   📝 Forced response: {response_str[:150]}...")
+        
+        # Extract answer
+        if '<answer>' in response_str and '</answer>' in response_str:
+            answer = self._extract_answer(response_str)
+            print(f"   ✅ Successfully extracted answer: {answer[:100]}...")
+            return answer
+        else:
+            print(f"   ⚠️ No answer tags even after forcing, using default")
+            return "Unable to find sufficient information to answer the query."
 
     def _postprocess_response(self, response: str) -> str:
         """Post-process response to stop at action tags"""
