@@ -140,6 +140,20 @@ class HierarchicalGenerationManager:
         print(f"Searcher: {self.config.searcher_max_turns} turns per query")
         print(f"{'='*80}\n")
         
+        # Log initial prompts
+        print(f"\n{'─'*80}")
+        print(f"📝 [THINKER] Initial Prompts (FULL):")
+        print(f"{'─'*80}")
+        for idx in range(batch_size):
+            initial_prompt = self.thinker_tokenizer.decode(
+                gen_batch.batch['input_ids'][idx], 
+                skip_special_tokens=False
+            )
+            print(f"\n[Sample {idx}] Initial Prompt:")
+            print(initial_prompt)
+            print(f"{'-'*40}")
+        print(f"{'─'*80}\n")
+        
         # Main Thinker loop
         for thinker_turn in range(self.config.thinker_max_turns):
             if not active_mask.sum():
@@ -164,6 +178,17 @@ class HierarchicalGenerationManager:
                 responses_ids, responses_str, active_mask
             )
             
+            # Log Thinker responses
+            print(f"\n{'─'*80}")
+            print(f"💬 [THINKER] Turn {thinker_turn + 1} - All Active Sample Responses:")
+            print(f"{'─'*80}")
+            for idx, (response, is_active) in enumerate(zip(responses_str, active_mask)):
+                if is_active:
+                    print(f"\n[Sample {idx}] FULL Response:")
+                    print(response)
+                    print(f"{'-'*40}")
+            print(f"{'─'*80}\n")
+            
             # Process Thinker actions
             next_obs_list = []
             dones = []
@@ -183,13 +208,22 @@ class HierarchicalGenerationManager:
                     # Extract search query
                     search_query = self._extract_tag_content(response, 'search')
                     if search_query:
-                        print(f"  Sample {idx}: 🔍 Thinker search → Delegating to Searcher")
-                        print(f"    Query: {search_query[:100]}...")
+                        print(f"\n{'─'*80}")
+                        print(f"  🔍 [THINKER Sample {idx}] Delegating to Searcher")
+                        print(f"{'─'*80}")
+                        print(f"  FULL Search Query:")
+                        print(search_query)
+                        print(f"{'─'*80}\n")
                         
                         # Delegate to Searcher service via client
                         searcher_summary = self.searcher_client.execute_search(search_query)
                         
-                        print(f"    ✅ Searcher returned: {searcher_summary[:100]}...")
+                        print(f"\n{'─'*80}")
+                        print(f"  ✅ [THINKER Sample {idx}] Received from Searcher:")
+                        print(f"{'─'*80}")
+                        print(f"  FULL Searcher Summary:")
+                        print(searcher_summary)
+                        print(f"{'─'*80}\n")
                         
                         # Return Searcher's summary as information to Thinker
                         observation = f'\n\n<information>{searcher_summary}</information>\n\n'
@@ -206,14 +240,19 @@ class HierarchicalGenerationManager:
                 
                 elif '<answer>' in response and '</answer>' in response:
                     # Thinker provided final answer
-                    print(f"  Sample {idx}: ✅ Thinker answered")
+                    answer_content = self._extract_tag_content(response, 'answer')
+                    print(f"\n{'─'*80}")
+                    print(f"  ✅ [THINKER Sample {idx}] Provided FINAL ANSWER:")
+                    print(f"{'─'*80}")
+                    print(answer_content)
+                    print(f"{'─'*80}\n")
                     next_obs_list.append('')
                     dones.append(True)
                     valid_actions.append(1)
                     is_searches.append(0)
                 else:
                     # Invalid action
-                    print(f"  Sample {idx}: ❌ Invalid action")
+                    print(f"\n  ❌ [THINKER Sample {idx}] Invalid action - no proper tags\n")
                     next_obs_list.append(self._get_invalid_action_msg())
                     dones.append(False)
                     valid_actions.append(0)
@@ -226,6 +265,17 @@ class HierarchicalGenerationManager:
             valid_action_stats += torch.tensor(valid_actions, dtype=torch.int)
             valid_search_stats += torch.tensor(is_searches, dtype=torch.int)
             
+            # Log observations being fed back to Thinker
+            print(f"\n{'─'*80}")
+            print(f"📥 [THINKER] Turn {thinker_turn + 1} - Observations Fed Back:")
+            print(f"{'─'*80}")
+            for idx, obs in enumerate(next_obs_list):
+                if obs:
+                    print(f"\n[Sample {idx}] Observation:")
+                    print(obs)
+                    print(f"{'-'*40}")
+            print(f"{'─'*80}\n")
+            
             # Update rolling context
             next_obs_ids = self._process_next_obs(next_obs_list)
             rollings = self._update_rolling_state(rollings, responses_ids, next_obs_ids)
@@ -235,7 +285,9 @@ class HierarchicalGenerationManager:
         
         # Final Thinker response if still active
         if active_mask.sum():
-            print(f"\n🧠 [Thinker Final Turn] Forcing answer from active samples: {active_mask.sum()}")
+            print(f"\n{'='*80}")
+            print(f"🧠 [THINKER FINAL TURN] Forcing answer from active samples: {active_mask.sum()}")
+            print(f"{'='*80}\n")
             
             # Cut to effective length before final generation
             rollings.batch = self.tensor_fn.cut_to_effective_len(
@@ -251,6 +303,17 @@ class HierarchicalGenerationManager:
             responses_ids, responses_str = self.tensor_fn._example_level_pad(
                 responses_ids, responses_str, active_mask
             )
+            
+            # Log final responses
+            print(f"\n{'─'*80}")
+            print(f"💬 [THINKER FINAL] All Active Sample Final Responses:")
+            print(f"{'─'*80}")
+            for idx, (response, is_active) in enumerate(zip(responses_str, active_mask)):
+                if is_active:
+                    print(f"\n[Sample {idx}] FULL Final Response:")
+                    print(response)
+                    print(f"{'-'*40}")
+            print(f"{'─'*80}\n")
             
             original_right_side = self._update_right_side(
                 original_right_side, responses_ids

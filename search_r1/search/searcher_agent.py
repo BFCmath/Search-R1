@@ -281,7 +281,7 @@ IMPORTANT: You MUST respond with <answer>your answer here</answer>
             return answer
         else:
             print(f"   ⚠️ No answer tags even after forcing, using default")
-            return "Unable to find sufficient information to answer the query."
+            return "Error in searching."
 
     def _postprocess_response(self, response: str) -> str:
         """Post-process response to stop at action tags"""

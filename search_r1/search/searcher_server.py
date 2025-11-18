@@ -87,11 +87,18 @@ class SearcherAgent:
         print(f"\n{'='*80}")
         print(f"🔍 [SEARCHER] Received query from Thinker")
         print(f"{'='*80}")
-        print(f"Query: {thinker_query[:200]}...")
+        print(f"FULL QUERY:")
+        print(thinker_query)
         print(f"{'='*80}\n")
         
         # Create prompt for Searcher
         searcher_prompt = self._create_searcher_prompt(thinker_query)
+        
+        print(f"\n{'─'*80}")
+        print(f"📝 [SEARCHER] Initial Prompt (Full):")
+        print(f"{'─'*80}")
+        print(searcher_prompt)
+        print(f"{'─'*80}\n")
         
         # Tokenize
         current_context = self.tokenizer(
@@ -131,8 +138,13 @@ class SearcherAgent:
             elif '</answer>' in response_str:
                 response_str = response_str.split('</answer>')[0] + '</answer>'
             
-            trajectory.append(f"Turn {turn + 1}: {response_str[:200]}...")
-            print(f"     Response: {response_str[:100]}...")
+            trajectory.append(f"Turn {turn + 1}: {response_str}")
+            
+            print(f"\n{'─'*80}")
+            print(f"💬 [SEARCHER] Turn {turn + 1} FULL Response:")
+            print(f"{'─'*80}")
+            print(response_str)
+            print(f"{'─'*80}\n")
             
             # Check if answer provided
             if '</answer>' in response_str:
@@ -150,13 +162,24 @@ class SearcherAgent:
             if '</search>' in response_str:
                 search_query = self._extract_search_query(response_str)
                 if search_query:
-                    print(f"     🔎 Searching: {search_query[:80]}...")
+                    print(f"\n{'─'*80}")
+                    print(f"🔎 [SEARCHER] Search Query {num_searches + 1}:")
+                    print(f"{'─'*80}")
+                    print(search_query)
+                    print(f"{'─'*80}\n")
+                    
                     search_results = self._do_search(search_query)
                     num_searches += 1
                     
+                    print(f"\n{'─'*80}")
+                    print(f"📚 [SEARCHER] Search Results {num_searches} (FULL):")
+                    print(f"{'─'*80}")
+                    print(search_results)
+                    print(f"{'─'*80}\n")
+                    
                     observation = f'\n\n<information>{search_results}</information>\n\n'
                     trajectory.append(f"Search {num_searches}: {search_query}")
-                    trajectory.append(f"Results: {search_results[:200]}...")
+                    trajectory.append(f"Results: {search_results}")
                     
                     # Update context - append tokens directly to avoid losing information
                     response_tokens = self.tokenizer.encode(response_str, add_special_tokens=False, return_tensors='pt').to(self.config.device)
@@ -183,9 +206,17 @@ class SearcherAgent:
                 break
         
         # Force final answer generation after max turns
-        print(f"  ⚠️ [Searcher] Max turns reached, forcing final answer generation")
+        print(f"\n{'='*80}")
+        print(f"⚠️ [SEARCHER] Max turns reached, forcing final answer generation")
+        print(f"{'='*80}\n")
         
         forced_answer = self._force_final_answer(current_context, trajectory)
+        
+        print(f"\n{'='*80}")
+        print(f"✅ [SEARCHER] FINAL SUMMARY:")
+        print(f"{'='*80}")
+        print(forced_answer)
+        print(f"{'='*80}\n")
         
         return {
             'summary': forced_answer,
@@ -238,10 +269,14 @@ Respond now with <answer>...</answer><|im_end|>
         Returns:
             Extracted answer string
         """
-        print(f"     🎯 [Forcing Answer] Appending forced answer prompt")
+        print(f"\n{'─'*80}")
+        print(f"🎯 [SEARCHER] Forced Answer Prompt:")
+        print(f"{'─'*80}")
+        forced_prompt = self._create_forced_answer_prompt()
+        print(forced_prompt)
+        print(f"{'─'*80}\n")
         
         # Add forced answer prompt to context
-        forced_prompt = self._create_forced_answer_prompt()
         forced_prompt_tokens = self.tokenizer.encode(
             forced_prompt, add_special_tokens=False, return_tensors='pt'
         ).to(self.config.device)
@@ -277,17 +312,21 @@ Respond now with <answer>...</answer><|im_end|>
         if '</answer>' in response_str:
             response_str = response_str.split('</answer>')[0] + '</answer>'
         
-        trajectory.append(f"Final Turn (Forced): {response_str[:200]}...")
+        trajectory.append(f"Final Turn (Forced): {response_str}")
         
-        print(f"     📝 Forced response: {response_str[:150]}...")
+        print(f"\n{'─'*80}")
+        print(f"📝 [SEARCHER] Forced Response (FULL):")
+        print(f"{'─'*80}")
+        print(response_str)
+        print(f"{'─'*80}\n")
         
         # Extract answer
         if '<answer>' in response_str and '</answer>' in response_str:
             answer = self._extract_answer(response_str)
-            print(f"     ✅ Successfully extracted answer: {answer[:100]}...")
+            print(f"✅ [SEARCHER] Successfully extracted answer")
             return answer
         else:
-            print(f"     ⚠️ No answer tags even after forcing, using default")
+            print(f"⚠️ [SEARCHER] No answer tags even after forcing, using default")
             return "Unable to find sufficient information to answer the query."
     
     def _extract_search_query(self, text: str) -> str:
