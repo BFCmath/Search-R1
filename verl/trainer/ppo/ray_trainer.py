@@ -364,10 +364,14 @@ class RayPPOTrainer(object):
     
     def _init_logger(self):
         from verl.utils.tracking import Tracking
+        import time
         self.logger = Tracking(project_name=self.config.trainer.project_name,
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
+        # Initialize timing for progress tracking
+        self.training_start_time = None
+        self.step_times = []
 
     def _create_dataloader(self):
         from torch.utils.data import DataLoader
@@ -634,6 +638,17 @@ class RayPPOTrainer(object):
                 self.config.trainer.default_hdfs_dir, 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
 
+    def _format_time(self, seconds):
+        """Format seconds into human-readable time string."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            mins = seconds / 60
+            return f"{mins:.1f}m"
+        else:
+            hours = seconds / 3600
+            return f"{hours:.2f}h"
+    
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch['attention_mask']
@@ -658,6 +673,7 @@ class RayPPOTrainer(object):
         The light-weight advantage computation is done on the driver process.
         """
 
+        import time
         logger = self.logger
         self.global_steps = 0
         # perform validation before training
@@ -671,6 +687,10 @@ class RayPPOTrainer(object):
 
         # we start from step 1
         self.global_steps += 1
+        
+        # Start timing for progress tracking
+        self.training_start_time = time.time()
+        self.step_times = []
 
         # Agent config preparation
         gen_config = GenerationConfig(
@@ -694,7 +714,24 @@ class RayPPOTrainer(object):
         # start training loop
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
-                print(f'epoch {epoch}, step {self.global_steps}')
+                step_start_time = time.time()
+                
+                # Calculate progress and ETA
+                progress_pct = (self.global_steps - 1) / self.total_training_steps * 100
+                if len(self.step_times) > 0:
+                    avg_step_time = sum(self.step_times[-10:]) / len(self.step_times[-10:])  # Use last 10 steps
+                    remaining_steps = self.total_training_steps - (self.global_steps - 1)
+                    eta_seconds = avg_step_time * remaining_steps
+                    eta_str = self._format_time(eta_seconds)
+                    elapsed_str = self._format_time(time.time() - self.training_start_time)
+                    print(f'\n{"="*80}')
+                    print(f'[Epoch {epoch+1}/{self.config.trainer.total_epochs}] Step {self.global_steps}/{self.total_training_steps} ({progress_pct:.1f}%) | Elapsed: {elapsed_str} | ETA: {eta_str}')
+                    print(f'{"="*80}')
+                else:
+                    print(f'\n{"="*80}')
+                    print(f'[Epoch {epoch+1}/{self.config.trainer.total_epochs}] Step {self.global_steps}/{self.total_training_steps} ({progress_pct:.1f}%)')
+                    print(f'{"="*80}')
+                
                 metrics = {}
                 timing_raw = {}
 
@@ -836,6 +873,20 @@ class RayPPOTrainer(object):
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                
+                # Track step completion time
+                step_duration = time.time() - step_start_time
+                self.step_times.append(step_duration)
+                metrics['timing_s/step_total'] = step_duration
+                
+                # Print key metrics to console for live monitoring
+                key_metrics = {k: v for k, v in metrics.items() if any(x in k for x in [
+                    'rewards/mean', 'score/mean', 'kl', 'loss', 'finish_ratio', 
+                    'timing_s/step', 'timing_s/gen'
+                ])}
+                if key_metrics:
+                    metrics_str = ' | '.join([f'{k.split("/")[-1]}={v:.3f}' for k, v in sorted(key_metrics.items())])
+                    print(f'📊 Metrics: {metrics_str}', flush=True)
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

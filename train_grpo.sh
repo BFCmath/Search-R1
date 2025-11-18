@@ -1,25 +1,25 @@
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export DATA_DIR='data/nq_search'
+export CUDA_VISIBLE_DEVICES=0
+export DATA_DIR=data/hotpotqa_only  # HotpotQA-only dataset
 
-WAND_PROJECT='Search-R1'
+WAND_PROJECT="Search-R1"
 
-# export BASE_MODEL='meta-llama/Llama-3.2-3B'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-llama3.2-3b-em
+export BASE_MODEL='Qwen/Qwen2.5-1.5B-Instruct'
+export EXPERIMENT_NAME=hotpotqa_only-search-r1-grpo-qwen2.5-1.5b-em
 # export BASE_MODEL='meta-llama/Llama-3.2-3B-Instruct'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-llama3.2-3b-it-em
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-llama3.2-3b-it-em
 # export BASE_MODEL='meta-llama/Llama-3.1-8B'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-llama3.1-8b-em
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-llama3.1-8b-em
 # export BASE_MODEL='meta-llama/Llama-3.1-8B-Instruct'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-llama3.1-8b-it-em
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-llama3.1-8b-it-em
 
-export BASE_MODEL='Qwen/Qwen2.5-3B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-em
+# export BASE_MODEL='Qwen/Qwen2.5-3B'
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-qwen2.5-3b-em
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-7b-em
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-qwen2.5-7b-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B-Instruct'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-7b-it-em
+# export EXPERIMENT_NAME=${data_name}-search-r1-grpo-qwen2.5-7b-it-em
 
 # set -x
 export VLLM_ATTENTION_BACKEND=XFORMERS # vllm + qwen2-7b with flash_attn has some issues
@@ -27,8 +27,8 @@ export VLLM_ATTENTION_BACKEND=XFORMERS # vllm + qwen2-7b with flash_attn has som
 # max_prompt_length = (config['training']['max_start_length'] + config['training']['max_response_length'] * (config['training']['max_turns'] - 1) + config['training']['max_obs_length'] * config['training']['max_turns'])
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
-    data.train_files=$TRAIN_DATA_DIR/train.parquet \
-    data.val_files=$TEST_DATA_DIR/test.parquet \
+    data.train_files=$DATA_DIR/train.parquet \
+    data.val_files=$DATA_DIR/test.parquet \
     data.train_data_num=null \
     data.val_data_num=null \
     data.train_batch_size=512 \
@@ -66,14 +66,14 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     +trainer.val_only=false \
     +trainer.val_before_train=true \
     trainer.default_hdfs_dir=null \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=50 \
     trainer.project_name=$WAND_PROJECT \
     trainer.experiment_name=$EXPERIMENT_NAME \
-    trainer.total_epochs=15 \
-    trainer.total_training_steps=1005 \
+    trainer.total_epochs=3 \
+    trainer.total_training_steps=35 \
     trainer.default_hdfs_dir=null \
     trainer.default_local_dir=verl_checkpoints/$EXPERIMENT_NAME \
     max_turns=2 \

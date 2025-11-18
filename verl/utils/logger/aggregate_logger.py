@@ -27,6 +27,41 @@ def concat_dict_to_str(dict: Dict, step):
     return output_str
 
 
+def format_metrics_compact(metrics: Dict) -> str:
+    """Format metrics in a compact, readable way for console output."""
+    # Prioritize important metrics
+    priority_keys = [
+        'critic/rewards/mean', 'critic/score/mean',
+        'critic/kl', 'critic/kl_coeff',
+        'actor/approx_kl', 'actor/loss',
+        'env/finish_ratio', 'env/number_of_actions/mean',
+        'timing_s/step', 'timing_s/gen'
+    ]
+    
+    output_parts = []
+    shown_keys = set()
+    
+    # Show priority metrics first
+    for key in priority_keys:
+        if key in metrics:
+            val = metrics[key]
+            if isinstance(val, numbers.Number):
+                short_key = key.split('/')[-1]  # Get last part of key
+                output_parts.append(f'{short_key}={val:.3f}')
+                shown_keys.add(key)
+    
+    # Show remaining metrics (limited to prevent clutter)
+    remaining = [(k, v) for k, v in metrics.items() 
+                 if k not in shown_keys and isinstance(v, numbers.Number)]
+    if len(remaining) > 0:
+        output_parts.append('|')
+        for k, v in remaining[:5]:  # Limit to 5 additional metrics
+            short_key = k.split('/')[-1]
+            output_parts.append(f'{short_key}={v:.3f}')
+    
+    return ' '.join(output_parts)
+
+
 class LocalLogger:
 
     def __init__(self, remote_logger=None, enable_wandb=False, print_to_console=False):
@@ -39,4 +74,6 @@ class LocalLogger:
 
     def log(self, data, step):
         if self.print_to_console:
-            print(concat_dict_to_str(data, step=step), flush=True)
+            # Use compact formatting for better readability
+            metrics_str = format_metrics_compact(data)
+            print(f'[Step {step}] {metrics_str}', flush=True)

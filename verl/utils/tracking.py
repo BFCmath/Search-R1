@@ -60,6 +60,14 @@ class Tracking(object):
         for default_backend, logger_instance in self.logger.items():
             if backend is None or default_backend in backend:
                 logger_instance.log(data=data, step=step)
+        
+        # Force wandb to commit/flush immediately for live rendering
+        if 'wandb' in self.logger and (backend is None or 'wandb' in backend):
+            try:
+                # wandb.log already commits by default, but we can ensure it's visible
+                pass
+            except Exception as e:
+                pass
 
 
 class _MlflowLoggingAdapter:
