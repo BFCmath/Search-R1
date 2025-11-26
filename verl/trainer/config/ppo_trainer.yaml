@@ -149,6 +149,17 @@ retriever:
   url: "http://127.0.0.1:8000/retrieve"
   topk: 3
 
+hierarchical:
+  enabled: false
+  thinker_max_turns: 2
+  searcher_max_turns: 3
+  thinker_max_response_length: 300
+  searcher_max_response_length: 400
+  searcher_max_obs_length: 400
+  searcher_url: "http://127.0.0.1:8001/search"
+  searcher_model_path: "Qwen/Qwen2.5-1.5B-Instruct"
+  searcher_gpu_memory: 0.25
+
 algorithm:
   gamma: 1.0
   lam: 1.0

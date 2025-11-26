@@ -41,6 +41,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 
 import re
 from search_r1.llm_agent.generation import LLMGenerationManager, GenerationConfig
+from search_r1.llm_agent.hierarchical_generation import HierarchicalGenerationManager, HierarchicalConfig
 
 WorkerType = Type[Worker]
 
@@ -447,25 +448,49 @@ class RayPPOTrainer(object):
         reward_tensor_lst = []
         data_source_lst = []
 
-        gen_config = GenerationConfig(
-            max_turns=self.config.max_turns,
-            max_start_length=self.config.data.max_start_length,
-            max_prompt_length=self.config.data.max_prompt_length,
-            max_response_length=self.config.data.max_response_length,
-            max_obs_length=self.config.data.max_obs_length,
-            num_gpus=self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes,
-            no_think_rl=self.config.algorithm.no_think_rl,
-            search_url = self.config.retriever.url,
-            topk = self.config.retriever.topk,
-        )
-
-        # Agent config preparation
-        generation_manager = LLMGenerationManager(
-            tokenizer=self.tokenizer,
-            actor_rollout_wg=self.actor_rollout_wg,
-            config=gen_config,
-            is_validation = True,
-        )
+        # Check if hierarchical mode is enabled
+        use_hierarchical = hasattr(self.config, 'hierarchical') and self.config.hierarchical.enabled
+        
+        if use_hierarchical:
+            # Hierarchical Thinker-Searcher mode
+            gen_config = HierarchicalConfig(
+                thinker_max_turns=self.config.hierarchical.thinker_max_turns,
+                thinker_max_response_length=self.config.hierarchical.thinker_max_response_length,
+                searcher_url=self.config.hierarchical.searcher_url,
+                searcher_max_turns=self.config.hierarchical.searcher_max_turns,
+                searcher_max_response_length=self.config.hierarchical.searcher_max_response_length,
+                searcher_max_obs_length=self.config.hierarchical.searcher_max_obs_length,
+                max_start_length=self.config.data.max_start_length,
+                max_prompt_length=self.config.data.max_prompt_length,
+                num_gpus=self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes,
+                search_url=self.config.retriever.url,
+                topk=self.config.retriever.topk,
+            )
+            generation_manager = HierarchicalGenerationManager(
+                thinker_tokenizer=self.tokenizer,
+                thinker_rollout_wg=self.actor_rollout_wg,
+                config=gen_config,
+                is_validation=True,
+            )
+        else:
+            # Standard single-agent mode
+            gen_config = GenerationConfig(
+                max_turns=self.config.max_turns,
+                max_start_length=self.config.data.max_start_length,
+                max_prompt_length=self.config.data.max_prompt_length,
+                max_response_length=self.config.data.max_response_length,
+                max_obs_length=self.config.data.max_obs_length,
+                num_gpus=self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes,
+                no_think_rl=self.config.algorithm.no_think_rl,
+                search_url = self.config.retriever.url,
+                topk = self.config.retriever.topk,
+            )
+            generation_manager = LLMGenerationManager(
+                tokenizer=self.tokenizer,
+                actor_rollout_wg=self.actor_rollout_wg,
+                config=gen_config,
+                is_validation = True,
+            )
         
         # Validation progress tracking
         total_val_batches = len(self.val_dataloader)
@@ -547,10 +572,16 @@ class RayPPOTrainer(object):
                     first_input_ids = test_gen_batch.batch['input_ids'][:, -gen_config.max_start_length:].clone()
                     with _timer('gen', timing_raw):
                         generation_manager.timing_raw = timing_raw
-                        final_gen_batch_output = generation_manager.run_llm_loop(
-                            gen_batch=test_gen_batch,
-                            initial_input_ids=first_input_ids,
-                        )
+                        if use_hierarchical:
+                            final_gen_batch_output = generation_manager.run_hierarchical_loop(
+                                gen_batch=test_gen_batch,
+                                initial_input_ids=first_input_ids,
+                            )
+                        else:
+                            final_gen_batch_output = generation_manager.run_llm_loop(
+                                gen_batch=test_gen_batch,
+                                initial_input_ids=first_input_ids,
+                            )
                     
                     test_batch = test_batch.union(final_gen_batch_output)
                     
@@ -767,23 +798,47 @@ class RayPPOTrainer(object):
         print(f'{"="*80}\n')
 
         # Agent config preparation
-        gen_config = GenerationConfig(
-            max_turns=self.config.max_turns,
-            max_start_length=self.config.data.max_start_length,
-            max_prompt_length=self.config.data.max_prompt_length,
-            max_response_length=self.config.data.max_response_length,
-            max_obs_length=self.config.data.max_obs_length,
-            num_gpus=self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes,
-            no_think_rl=self.config.algorithm.no_think_rl,
-            search_url = self.config.retriever.url,
-            topk = self.config.retriever.topk,
-        )
-
-        generation_manager = LLMGenerationManager(
-            tokenizer=self.tokenizer,
-            actor_rollout_wg=self.actor_rollout_wg,
-            config=gen_config,
-        )
+        use_hierarchical = hasattr(self.config, 'hierarchical') and self.config.hierarchical.enabled
+        
+        if use_hierarchical:
+            # Hierarchical Thinker-Searcher mode
+            gen_config = HierarchicalConfig(
+                thinker_max_turns=self.config.hierarchical.thinker_max_turns,
+                thinker_max_response_length=self.config.hierarchical.thinker_max_response_length,
+                searcher_url=self.config.hierarchical.searcher_url,
+                searcher_max_turns=self.config.hierarchical.searcher_max_turns,
+                searcher_max_response_length=self.config.hierarchical.searcher_max_response_length,
+                searcher_max_obs_length=self.config.hierarchical.searcher_max_obs_length,
+                max_start_length=self.config.data.max_start_length,
+                max_prompt_length=self.config.data.max_prompt_length,
+                num_gpus=self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes,
+                search_url=self.config.retriever.url,
+                topk=self.config.retriever.topk,
+            )
+            generation_manager = HierarchicalGenerationManager(
+                thinker_tokenizer=self.tokenizer,
+                thinker_rollout_wg=self.actor_rollout_wg,
+                config=gen_config,
+                is_validation=False,
+            )
+        else:
+            # Standard single-agent mode
+            gen_config = GenerationConfig(
+                max_turns=self.config.max_turns,
+                max_start_length=self.config.data.max_start_length,
+                max_prompt_length=self.config.data.max_prompt_length,
+                max_response_length=self.config.data.max_response_length,
+                max_obs_length=self.config.data.max_obs_length,
+                num_gpus=self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes,
+                no_think_rl=self.config.algorithm.no_think_rl,
+                search_url = self.config.retriever.url,
+                topk = self.config.retriever.topk,
+            )
+            generation_manager = LLMGenerationManager(
+                tokenizer=self.tokenizer,
+                actor_rollout_wg=self.actor_rollout_wg,
+                config=gen_config,
+            )
 
         # start training loop
         for epoch in range(self.config.trainer.total_epochs):
@@ -839,10 +894,16 @@ class RayPPOTrainer(object):
 
                         with _timer('gen', timing_raw):
                             generation_manager.timing_raw = timing_raw
-                            final_gen_batch_output = generation_manager.run_llm_loop(
-                                gen_batch=gen_batch,
-                                initial_input_ids=first_input_ids,
-                            )
+                            if use_hierarchical:
+                                final_gen_batch_output = generation_manager.run_hierarchical_loop(
+                                    gen_batch=gen_batch,
+                                    initial_input_ids=first_input_ids,
+                                )
+                            else:
+                                final_gen_batch_output = generation_manager.run_llm_loop(
+                                    gen_batch=gen_batch,
+                                    initial_input_ids=first_input_ids,
+                                )
 
                         # final_gen_batch_output.batch.apply(lambda x: x.long(), inplace=True)
                         for key in final_gen_batch_output.batch.keys():
